@@ -109,22 +109,22 @@ public class DirectoryHelper {
       Set<String>     contactServiceResult = executeAndMergeContactDiscoveryRequests(accountManager, contactServiceRequest);
 
       if (legacyResult.getNumbers().size() == contactServiceResult.size() && legacyResult.getNumbers().containsAll(contactServiceResult)) {
-        Log.i(TAG, "New contact discovery service request matched existing results.");
+        Log.i(TAG, "[Batch] New contact discovery service request matched existing results.");
         accountManager.reportContactDiscoveryServiceMatch();
       } else {
-        Log.w(TAG, "New contact discovery service request did NOT match existing results.");
+        Log.w(TAG, "[Batch] New contact discovery service request did NOT match existing results.");
         accountManager.reportContactDiscoveryServiceMismatch();
       }
 
       return legacyResult.getNewlyActiveAddresses();
 
     } catch (InterruptedException e) {
-      throw new IOException("Operation was interrupted.", e);
+      throw new IOException("[Batch] Operation was interrupted.", e);
     } catch (ExecutionException e) {
       if (e.getCause() instanceof IOException) {
         throw (IOException) e.getCause();
       } else {
-        Log.e(TAG, "Experienced an unexpected exception.", e);
+        Log.e(TAG, "[Batch] Experienced an unexpected exception.", e);
         throw new AssertionError(e);
       }
     }
@@ -136,30 +136,34 @@ public class DirectoryHelper {
   {
     RecipientDatabase             recipientDatabase = DatabaseFactory.getRecipientDatabase(context);
     SignalServiceAccountManager   accountManager    = AccountManagerFactory.createManager(context);
-    boolean                       activeUser        = recipient.resolve().getRegistered() == RegisteredState.REGISTERED;
-    boolean                       systemContact     = recipient.isSystemContact();
-    String                        number            = recipient.getAddress().serialize();
-    Optional<ContactTokenDetails> details           = accountManager.getContact(number);
 
-    if (details.isPresent()) {
-      recipientDatabase.setRegistered(recipient, RegisteredState.REGISTERED);
+    Future<RegisteredState>   legacyRequest         = getLegacyRegisteredState(context, accountManager, recipientDatabase, recipient);
+    List<Future<Set<String>>> contactServiceRequest = getContactServiceDirectoryResult(context, accountManager, Collections.singleton(recipient.getAddress().serialize()));
 
-      if (Permissions.hasAll(context, Manifest.permission.WRITE_CONTACTS)) {
-        updateContactsDatabase(context, Util.asList(recipient.getAddress()), false);
+    try {
+      RegisteredState legacyState          = legacyRequest.get();
+      Set<String>     contactServiceResult = executeAndMergeContactDiscoveryRequests(accountManager, contactServiceRequest);
+      RegisteredState contactServiceState  = contactServiceResult.size() == 1 ? RegisteredState.REGISTERED : RegisteredState.NOT_REGISTERED;
+
+      if (legacyState == contactServiceState) {
+        Log.i(TAG, "[Singular] New contact discovery service request matched existing results.");
+        accountManager.reportContactDiscoveryServiceMatch();
+      } else {
+        Log.w(TAG, "[Singular] New contact discovery service request did NOT match existing results.");
+        accountManager.reportContactDiscoveryServiceMismatch();
       }
 
-      if (!activeUser && TextSecurePreferences.isMultiDevice(context)) {
-        ApplicationContext.getInstance(context).getJobManager().add(new MultiDeviceContactUpdateJob(context));
-      }
+      return legacyState;
 
-      if (!activeUser && systemContact && !TextSecurePreferences.getNeedsSqlCipherMigration(context)) {
-        notifyNewUsers(context, Collections.singletonList(recipient.getAddress()));
+    } catch (InterruptedException e) {
+      throw new IOException("[Singular] Operation was interrupted.", e);
+    } catch (ExecutionException e) {
+      if (e.getCause() instanceof IOException) {
+        throw (IOException) e.getCause();
+      } else {
+        Log.e(TAG, "[Singular] Experienced an unexpected exception.", e);
+        throw new AssertionError(e);
       }
-
-      return RegisteredState.REGISTERED;
-    } else {
-      recipientDatabase.setRegistered(recipient, RegisteredState.NOT_REGISTERED);
-      return RegisteredState.NOT_REGISTERED;
     }
   }
 
@@ -297,9 +301,43 @@ public class DirectoryHelper {
    });
   }
 
+  private static Future<RegisteredState> getLegacyRegisteredState(@NonNull Context                     context,
+                                                                  @NonNull SignalServiceAccountManager accountManager,
+                                                                  @NonNull RecipientDatabase           recipientDatabase,
+                                                                  @NonNull Recipient                   recipient)
+  {
+    return SignalExecutors.IO.submit(() -> {
+      boolean                       activeUser    = recipient.resolve().getRegistered() == RegisteredState.REGISTERED;
+      boolean                       systemContact = recipient.isSystemContact();
+      String                        number        = recipient.getAddress().serialize();
+      Optional<ContactTokenDetails> details       = accountManager.getContact(number);
+
+      if (details.isPresent()) {
+        recipientDatabase.setRegistered(recipient, RegisteredState.REGISTERED);
+
+        if (Permissions.hasAll(context, Manifest.permission.WRITE_CONTACTS)) {
+          updateContactsDatabase(context, Util.asList(recipient.getAddress()), false);
+        }
+
+        if (!activeUser && TextSecurePreferences.isMultiDevice(context)) {
+          ApplicationContext.getInstance(context).getJobManager().add(new MultiDeviceContactUpdateJob(context));
+        }
+
+        if (!activeUser && systemContact && !TextSecurePreferences.getNeedsSqlCipherMigration(context)) {
+          notifyNewUsers(context, Collections.singletonList(recipient.getAddress()));
+        }
+
+        return RegisteredState.REGISTERED;
+      } else {
+        recipientDatabase.setRegistered(recipient, RegisteredState.NOT_REGISTERED);
+        return RegisteredState.NOT_REGISTERED;
+      }
+    });
+  }
+
   private static List<Future<Set<String>>> getContactServiceDirectoryResult(@NonNull Context                     context,
-                                                                          @NonNull SignalServiceAccountManager accountManager,
-                                                                          @NonNull Set<String>                 eligibleContactNumbers)
+                                                                            @NonNull SignalServiceAccountManager accountManager,
+                                                                            @NonNull Set<String>                 eligibleContactNumbers)
   {
     List<Set<String>>         batches = splitIntoBatches(eligibleContactNumbers, CONTACT_DISCOVERY_BATCH_SIZE);
     List<Future<Set<String>>> futures = new ArrayList<>(batches.size());
