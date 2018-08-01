@@ -13,7 +13,6 @@ import android.text.TextUtils;
 import org.thoughtcrime.securesms.ConversationActivity;
 import org.thoughtcrime.securesms.R;
 import org.thoughtcrime.securesms.WebRtcCallActivity;
-import org.thoughtcrime.securesms.contactshare.Contact;
 import org.thoughtcrime.securesms.database.Address;
 import org.thoughtcrime.securesms.database.DatabaseFactory;
 import org.thoughtcrime.securesms.permissions.Permissions;
@@ -56,7 +55,7 @@ public class CommunicationActions {
       @Override
       protected void onPostExecute(Long threadId) {
         Intent intent = new Intent(context, ConversationActivity.class);
-        intent.putExtra(ConversationActivity.ADDRESS_EXTRA, recipient.getAddress());
+        intent.putExtra(ConversationActivity.SERIALIZED_ADDRESS_EXTRA, recipient.getAddress().serialize());
         intent.putExtra(ConversationActivity.THREAD_ID_EXTRA, threadId);
         intent.putExtra(ConversationActivity.TIMING_EXTRA, System.currentTimeMillis());
 

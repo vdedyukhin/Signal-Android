@@ -51,7 +51,7 @@ public class NewConversationActivity extends ContactSelectionActivity {
     Recipient recipient = Recipient.from(this, Address.fromExternal(this, number), true);
 
     Intent intent = new Intent(this, ConversationActivity.class);
-    intent.putExtra(ConversationActivity.ADDRESS_EXTRA, recipient.getAddress());
+    intent.putExtra(ConversationActivity.SERIALIZED_ADDRESS_EXTRA, recipient.getAddress().serialize());
     intent.putExtra(ConversationActivity.TEXT_EXTRA, getIntent().getStringExtra(ConversationActivity.TEXT_EXTRA));
     intent.setDataAndType(getIntent().getData(), getIntent().getType());
 

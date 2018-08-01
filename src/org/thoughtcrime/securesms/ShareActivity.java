@@ -245,7 +245,7 @@ public class ShareActivity extends PassphraseRequiredActionBarActivity
 
   private void createConversation(long threadId, Address address, int distributionType) {
     final Intent intent = getBaseShareIntent(ConversationActivity.class);
-    intent.putExtra(ConversationActivity.ADDRESS_EXTRA, address);
+    intent.putExtra(ConversationActivity.SERIALIZED_ADDRESS_EXTRA, address.serialize());
     intent.putExtra(ConversationActivity.THREAD_ID_EXTRA, threadId);
     intent.putExtra(ConversationActivity.DISTRIBUTION_TYPE_EXTRA, distributionType);
 

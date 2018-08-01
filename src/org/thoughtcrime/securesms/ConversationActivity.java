@@ -26,6 +26,7 @@ import android.content.Intent;
 import android.content.IntentFilter;
 import android.content.res.Configuration;
 import android.content.res.TypedArray;
+import android.graphics.BitmapFactory;
 import android.graphics.Color;
 import android.graphics.PorterDuff.Mode;
 import android.graphics.drawable.ColorDrawable;
@@ -39,6 +40,10 @@ import android.provider.ContactsContract;
 import android.provider.Telephony;
 import android.support.annotation.NonNull;
 import android.support.annotation.Nullable;
+import android.support.v4.app.TaskStackBuilder;
+import android.support.v4.content.pm.ShortcutInfoCompat;
+import android.support.v4.content.pm.ShortcutManagerCompat;
+import android.support.v4.graphics.drawable.IconCompat;
 import android.support.v4.view.MenuItemCompat;
 import android.support.v4.view.WindowCompat;
 import android.support.v7.app.ActionBar;
@@ -46,6 +51,7 @@ import android.support.v7.app.AlertDialog;
 import android.text.Editable;
 import android.text.TextUtils;
 import android.text.TextWatcher;
+
 import org.thoughtcrime.securesms.logging.Log;
 import android.util.Pair;
 import android.view.KeyEvent;
@@ -161,6 +167,7 @@ import org.thoughtcrime.securesms.util.ExpirationUtil;
 import org.thoughtcrime.securesms.util.GroupUtil;
 import org.thoughtcrime.securesms.util.IdentityUtil;
 import org.thoughtcrime.securesms.util.MediaUtil;
+import org.thoughtcrime.securesms.util.SafeAsyncTask;
 import org.thoughtcrime.securesms.util.ServiceUtil;
 import org.thoughtcrime.securesms.util.TextSecurePreferences;
 import org.thoughtcrime.securesms.util.Util;
@@ -206,14 +213,14 @@ public class ConversationActivity extends PassphraseRequiredActionBarActivity
 {
   private static final String TAG = ConversationActivity.class.getSimpleName();
 
-  public static final String ADDRESS_EXTRA           = "address";
-  public static final String THREAD_ID_EXTRA         = "thread_id";
-  public static final String IS_ARCHIVED_EXTRA       = "is_archived";
-  public static final String TEXT_EXTRA              = "draft_text";
-  public static final String DISTRIBUTION_TYPE_EXTRA = "distribution_type";
-  public static final String TIMING_EXTRA            = "timing";
-  public static final String LAST_SEEN_EXTRA         = "last_seen";
-  public static final String STARTING_POSITION_EXTRA = "starting_position";
+  public static final String SERIALIZED_ADDRESS_EXTRA = "address";
+  public static final String THREAD_ID_EXTRA          = "thread_id";
+  public static final String IS_ARCHIVED_EXTRA        = "is_archived";
+  public static final String TEXT_EXTRA               = "draft_text";
+  public static final String DISTRIBUTION_TYPE_EXTRA  = "distribution_type";
+  public static final String TIMING_EXTRA             = "timing";
+  public static final String LAST_SEEN_EXTRA          = "last_seen";
+  public static final String STARTING_POSITION_EXTRA  = "starting_position";
 
   private static final int PICK_GALLERY        = 1;
   private static final int PICK_DOCUMENT       = 2;
@@ -556,6 +563,10 @@ public class ConversationActivity extends PassphraseRequiredActionBarActivity
       inflater.inflate(R.menu.conversation_add_to_contacts, menu);
     }
 
+    if (!ShortcutManagerCompat.isRequestPinShortcutSupported(this)) {
+      menu.findItem(R.id.menu_add_shortcut).setVisible(false);
+    }
+
     super.onPrepareOptionsMenu(menu);
     return true;
   }
@@ -781,32 +792,56 @@ public class ConversationActivity extends PassphraseRequiredActionBarActivity
   private void handleAddShortcut() {
     Log.i(TAG, "Creating home screen shortcut for recipient " + recipient.getAddress());
 
-    Intent launchIntent = new Intent(getApplicationContext(), ConversationActivity.class);
+    new AsyncTask<Void, Void, IconCompat>() {
 
-    launchIntent.putExtra(ADDRESS_EXTRA, recipient.getAddress().serialize());
-    launchIntent.putExtra(TEXT_EXTRA, getIntent().getStringExtra(ConversationActivity.TEXT_EXTRA));
-    launchIntent.setDataAndType(getIntent().getData(), getIntent().getType());
+      @Override
+      protected IconCompat doInBackground(Void... voids) {
+        Context    context = getApplicationContext();
+        IconCompat icon    = null;
 
-    long existingThread = DatabaseFactory.getThreadDatabase(this).getThreadIdIfExistsFor(recipient);
+        if (recipient.getContactPhoto() != null) {
+          try {
+            icon = IconCompat.createWithAdaptiveBitmap(BitmapFactory.decodeStream(recipient.getContactPhoto().openInputStream(context)));
+          } catch (IOException e) {
+            Log.w(TAG, "Failed to decode contact photo during shortcut creation. Falling back to generic icon.", e);
+          }
+        }
 
-    launchIntent.putExtra(ConversationActivity.THREAD_ID_EXTRA, existingThread);
-    launchIntent.putExtra(ConversationActivity.DISTRIBUTION_TYPE_EXTRA, ThreadDatabase.DistributionTypes.DEFAULT);
+        if (icon == null) {
+          icon = IconCompat.createWithResource(context, recipient.isGroupRecipient() ? R.mipmap.ic_group_shortcut
+                                                                                     : R.mipmap.ic_person_shortcut);
+        }
 
-    launchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-    launchIntent.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP);
+        return icon;
+      }
 
-    Intent intent = new Intent();
-    final String name = Optional.fromNullable(recipient.getProfileName())
-                                .or(Optional.fromNullable(recipient.getName()))
-                                .or(recipient.toShortString());
-    // these constants are deprecated but their replacement (ShortcutManager) is available only from API level 25
-    intent.putExtra(Intent.EXTRA_SHORTCUT_INTENT, launchIntent);
-    intent.putExtra(Intent.EXTRA_SHORTCUT_NAME, name);
-    intent.putExtra(Intent.EXTRA_SHORTCUT_ICON_RESOURCE, Intent.ShortcutIconResource.fromContext(getApplicationContext(), R.mipmap.ic_launcher));
-    intent.setAction("com.android.launcher.action.INSTALL_SHORTCUT");
+      @Override
+      protected void onPostExecute(IconCompat icon) {
+        final Context context = getApplicationContext();
 
-    getApplicationContext().sendBroadcast(intent);
-    Toast.makeText(this, getString(R.string.ConversationActivity_added_to_home_screen), Toast.LENGTH_LONG).show();
+        Intent conversationIntent = new Intent(context, ConversationActivity.class);
+        conversationIntent.setAction(Intent.ACTION_MAIN);
+        conversationIntent.putExtra(ConversationActivity.SERIALIZED_ADDRESS_EXTRA, recipient.getAddress().serialize());
+        conversationIntent.putExtra(ConversationActivity.THREAD_ID_EXTRA, -1);
+
+        Intent conversationListIntent = new Intent(context, ConversationListActivity.class);
+        conversationListIntent.setAction(Intent.ACTION_MAIN);
+
+        final String name = Optional.fromNullable(recipient.getName())
+                                    .or(Optional.fromNullable(recipient.getProfileName()))
+                                    .or(recipient.toShortString());
+
+        ShortcutInfoCompat shortcutInfo = new ShortcutInfoCompat.Builder(getApplicationContext(), recipient.getAddress().serialize() + '-' + System.currentTimeMillis())
+                                                                .setShortLabel(name)
+                                                                .setIcon(icon)
+                                                                .setIntents(TaskStackBuilder.create(context).addNextIntent(conversationListIntent).addNextIntent(conversationIntent).getIntents())
+                                                                .build();
+
+        if (ShortcutManagerCompat.requestPinShortcut(context, shortcutInfo, null)) {
+          Toast.makeText(context, getString(R.string.ConversationActivity_added_to_home_screen), Toast.LENGTH_LONG).show();
+        }
+      }
+    }.execute();
   }
 
   private void handleLeavePushGroup() {
@@ -1376,7 +1411,7 @@ public class ConversationActivity extends PassphraseRequiredActionBarActivity
 
   private void initializeResources() {
     if (recipient != null) recipient.removeListener(this);
-    recipient        = getRecipientFromExtras(getIntent(), this);
+    recipient        = Recipient.from(this, Address.fromSerialized(getIntent().getStringExtra(SERIALIZED_ADDRESS_EXTRA)), true);
     threadId         = getIntent().getLongExtra(THREAD_ID_EXTRA, -1);
     archived         = getIntent().getBooleanExtra(IS_ARCHIVED_EXTRA, false);
     distributionType = getIntent().getIntExtra(DISTRIBUTION_TYPE_EXTRA, ThreadDatabase.DistributionTypes.DEFAULT);
@@ -1388,27 +1423,11 @@ public class ConversationActivity extends PassphraseRequiredActionBarActivity
       conversationContainer.setClipToPadding(true);
     }
 
-    recipient.addListener(this);
-  }
-
-  /**
-   * Extracts the Recipient instance from the extras contained in the intent.
-   *
-   * This can be passed in two ways:
-   *
-   * - If the intent was started from inside the app, the address is a parcelable Address instance.
-   * - If it was launched from the home screen then it is a serialised (stringified) form of the Address, as home screen
-   *   shortcuts cannot contain instances of Address (see BadParcelableException).
-   */
-  static Recipient getRecipientFromExtras(@NonNull Intent intent, @NonNull Context context) {
-    Address address;
-    final Address parcelableAddress = intent.getParcelableExtra(ADDRESS_EXTRA);
-    if(parcelableAddress != null) {
-      address = parcelableAddress;
-    } else {
-      address = Address.fromSerialized((String) intent.getExtras().get(ADDRESS_EXTRA));
+    if (threadId == -1) {
+      fetchAndNotifyThreadIdIfAvailable(recipient);
     }
-    return Recipient.from(context, address, true);
+
+    recipient.addListener(this);
   }
 
   private void initializeProfiles() {
@@ -1737,6 +1756,24 @@ public class ConversationActivity extends PassphraseRequiredActionBarActivity
     }.executeOnExecutor(AsyncTask.THREAD_POOL_EXECUTOR, threadId);
   }
 
+  private void fetchAndNotifyThreadIdIfAvailable(final Recipient recipientToCheck) {
+    SafeAsyncTask.execute(this, () -> {
+      return DatabaseFactory.getThreadDatabase(ConversationActivity.this).getThreadIdFor(recipientToCheck);
+    }, (foundThreadId) -> {
+      boolean stateUnchanged = this.threadId == -1 && recipientToCheck.equals(this.recipient);
+
+      if (stateUnchanged && foundThreadId != -1) {
+        onNewThreadId(foundThreadId);
+      }
+    });
+  }
+
+  private void onNewThreadId(long threadId) {
+    fragment.reload(recipient, threadId);
+    MessageNotifier.setVisibleThread(threadId);
+  }
+
+
   protected void sendComplete(long threadId) {
     boolean refreshFragment = (threadId != this.threadId);
     this.threadId = threadId;
@@ -1748,8 +1785,7 @@ public class ConversationActivity extends PassphraseRequiredActionBarActivity
     fragment.setLastSeen(0);
 
     if (refreshFragment) {
-      fragment.reload(recipient, threadId);
-      MessageNotifier.setVisibleThread(threadId);
+      onNewThreadId(threadId);
     }
 
     fragment.scrollToBottom();

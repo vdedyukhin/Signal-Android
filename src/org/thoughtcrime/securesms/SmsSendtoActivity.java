@@ -52,7 +52,7 @@ public class SmsSendtoActivity extends Activity {
       nextIntent = new Intent(this, ConversationActivity.class);
       nextIntent.putExtra(ConversationActivity.TEXT_EXTRA, destination.getBody());
       nextIntent.putExtra(ConversationActivity.THREAD_ID_EXTRA, threadId);
-      nextIntent.putExtra(ConversationActivity.ADDRESS_EXTRA, recipient.getAddress());
+      nextIntent.putExtra(ConversationActivity.SERIALIZED_ADDRESS_EXTRA, recipient.getAddress().serialize());
     }
     return nextIntent;
   }

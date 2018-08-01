@@ -186,7 +186,7 @@ public class ConversationListActivity extends PassphraseRequiredActionBarActivit
     searchToolbar.clearFocus();
 
     Intent intent = new Intent(this, ConversationActivity.class);
-    intent.putExtra(ConversationActivity.ADDRESS_EXTRA, recipient.getAddress());
+    intent.putExtra(ConversationActivity.SERIALIZED_ADDRESS_EXTRA, recipient.getAddress().serialize());
     intent.putExtra(ConversationActivity.THREAD_ID_EXTRA, threadId);
     intent.putExtra(ConversationActivity.DISTRIBUTION_TYPE_EXTRA, distributionType);
     intent.putExtra(ConversationActivity.TIMING_EXTRA, System.currentTimeMillis());

@@ -39,6 +39,8 @@ import android.support.v7.widget.RecyclerView;
 import android.support.v7.widget.RecyclerView.OnScrollListener;
 import android.text.ClipboardManager;
 import android.text.TextUtils;
+
+import org.thoughtcrime.securesms.database.Address;
 import org.thoughtcrime.securesms.logging.Log;
 import android.view.LayoutInflater;
 import android.view.Menu;
@@ -206,7 +208,7 @@ public class ConversationFragment extends Fragment
   }
 
   private void initializeResources() {
-    this.recipient         = ConversationActivity.getRecipientFromExtras(getActivity().getIntent(), getActivity());
+    this.recipient         = Recipient.from(getActivity(), Address.fromSerialized(this.getActivity().getIntent().getStringExtra(ConversationActivity.SERIALIZED_ADDRESS_EXTRA)), true);
     this.threadId          = this.getActivity().getIntent().getLongExtra(ConversationActivity.THREAD_ID_EXTRA, -1);
     this.lastSeen          = this.getActivity().getIntent().getLongExtra(ConversationActivity.LAST_SEEN_EXTRA, -1);
     this.startingPosition  = this.getActivity().getIntent().getIntExtra(ConversationActivity.STARTING_POSITION_EXTRA, -1);
